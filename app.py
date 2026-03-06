@@ -312,7 +312,7 @@
 
 import numpy as np
 import cv2
-from flask import Flask, request, render_template, jsonify, redirect, url_for, flash
+from flask import Flask, request, jsonify, redirect, url_for
 from pathlib import Path
 from scipy import stats
 import base64 
@@ -348,6 +348,7 @@ load_dotenv()
 
 # --- IMPORTS ---
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User, Scan 
@@ -364,9 +365,12 @@ except ImportError:
     print("CRITICAL: Missing helper modules")
 
 app = Flask(__name__)
+CORS(app, supports_credentials=True)
 
 # --- CONFIG ---
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default-dev-key')
+app.config['SESSION_COOKIE_SAMESITE'] = "None"
+app.config['SESSION_COOKIE_SECURE'] = True
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///chessvision.db')
 
 if database_url.startswith("postgres://"):
@@ -389,12 +393,11 @@ LABELS_PATH = BASE_DIR / "labels" / "class_names.txt"
 # --- INIT ---
 db.init_app(app) 
 login_manager = LoginManager()
-login_manager.login_view = 'login' 
 login_manager.init_app(app)
 
 @login_manager.user_loader
 def load_user(id):
-    return User.query.get(int(id))
+    return db.session.get(User, int(id))
 
 # --- RESOURCES ---
 INTERPRETER = None
@@ -442,14 +445,23 @@ def manual_slice(img):
 def tflite_predict(interpreter, input_data):
     input_index = INPUT_DETAILS[0]['index']
     output_index = OUTPUT_DETAILS[0]['index']
-    predictions = []
-    for i in range(len(input_data)):
-        img = input_data[i:i+1].astype(np.float32) 
-        interpreter.set_tensor(input_index, img)
-        interpreter.invoke()
-        output = interpreter.get_tensor(output_index)
-        predictions.append(output[0])
-    return np.array(predictions)
+    batch = input_data.astype(np.float32)
+    interpreter.set_tensor(input_index, batch)
+    interpreter.invoke()
+    predictions = interpreter.get_tensor(output_index)
+    return predictions
+
+# def tflite_predict(interpreter, input_data):
+#     input_index = INPUT_DETAILS[0]['index']
+#     output_index = OUTPUT_DETAILS[0]['index']
+#     predictions = []
+#     for i in range(len(input_data)):
+#         img = input_data[i:i+1].astype(np.float32) 
+#         interpreter.set_tensor(input_index, img)
+#         interpreter.invoke()
+#         output = interpreter.get_tensor(output_index)
+#         predictions.append(output[0])
+#     return np.array(predictions)
 
 # 3. Voting Logic
 def predict_with_voting(interpreter, squares_batch):
@@ -496,8 +508,8 @@ def correct_color_errors(image_rgb, predicted_label):
 # --- ROUTES ---
 
 @app.route('/')
-def index():
-    return render_template('index.html', user=current_user)
+def health():
+    return jsonify({"status": "SnapFEN backend running"})
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -582,41 +594,47 @@ def report_issue():
     return jsonify({"status": "success"})
 
 # --- AUTH & HISTORY ---
-@app.route('/signup', methods=['GET', 'POST'])
+@app.route('/signup', methods=['POST'])
 def signup():
-    if request.method == 'POST':
-        email = request.form.get('email')
-        username = request.form.get('username')
-        password = request.form.get('password')
-        if User.query.filter_by(email=email).first():
-            flash('Email already registered.', 'error')
-        elif User.query.filter_by(username=username).first():
-            flash('Username taken.', 'error')
-        else:
-            new_user = User(email=email, username=username, password=generate_password_hash(password, method='pbkdf2:sha256'))
-            db.session.add(new_user)
-            db.session.commit()
-            login_user(new_user)
-            return redirect(url_for('index'))
-    return render_template('signup.html')
+    email = request.json.get('email')
+    username = request.json.get('username')
+    password = request.json.get('password')
 
-@app.route('/login', methods=['GET', 'POST'])
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "Email already registered"}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username taken"}), 400
+
+    new_user = User(
+        email=email,
+        username=username,
+        password=generate_password_hash(password, method='pbkdf2:sha256')
+    )
+
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({"message": "Signup successful"})
+
+@app.route('/login', methods=['POST'])
 def login():
-    if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
-        user = User.query.filter_by(email=email).first()
-        if user and check_password_hash(user.password, password):
-            login_user(user, remember=True)
-            return redirect(url_for('index'))
-        flash('Invalid credentials.', 'error')
-    return render_template('login.html')
+    email = request.json.get('email')
+    password = request.json.get('password')
 
-@app.route('/logout')
+    user = User.query.filter_by(email=email).first()
+
+    if user and check_password_hash(user.password, password):
+        login_user(user, remember=True)
+        return jsonify({"message": "Login successful"})
+
+    return jsonify({"error": "Invalid credentials"}), 401
+
+@app.route('/api/history', methods=['GET'])
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for('index'))
+    return jsonify({"message": "Logged out"})
 
 @app.route('/api/history')
 @login_required
