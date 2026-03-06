@@ -1,0 +1,12 @@
+flask
+flask-sqlalchemy
+flask-login
+tflite-runtime==2.14.0
+numpy==1.26.4
+opencv-python-headless==4.7.0.72
+gunicorn
+psycopg2-binary
+email-validator
+python-dotenv
+python-chess
+sib-api-v3-sdk

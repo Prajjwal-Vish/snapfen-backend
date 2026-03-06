@@ -1,0 +1,17 @@
+Python
+venv/
+env/
+pycache/
+*.pyc
+*.pyo
+raw_data/
+raw_data.zip
+model/
+labels/
+OS
+.DS_Store
+instance/
+.db
+.env
+.DS_Store
+Thumbs.db
