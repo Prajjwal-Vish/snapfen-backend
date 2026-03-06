@@ -314,7 +314,6 @@ import numpy as np
 import cv2
 from flask import Flask, request, jsonify, redirect, url_for
 from pathlib import Path
-from scipy import stats
 import base64 
 import threading
 import os
@@ -483,7 +482,9 @@ def predict_with_voting(interpreter, squares_batch):
     final_indices = []
     for i in range(64):
         votes = np.argmax(reshaped_preds[i], axis=1)
-        winner = stats.mode(votes, keepdims=True).mode[0]
+        counts = np.bincount(votes)
+        winner = np.argmax(counts)
+        
         final_indices.append(winner)
     return final_indices
 
