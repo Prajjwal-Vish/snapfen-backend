@@ -7,7 +7,6 @@ pycache/
 raw_data/
 raw_data.zip
 model/
-labels/
 OS
 .DS_Store
 instance/

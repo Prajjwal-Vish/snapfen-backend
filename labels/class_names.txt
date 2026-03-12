@@ -1,0 +1,14 @@
+dark_bishop
+dark_king
+dark_knight
+dark_pawn
+dark_queen
+dark_rook
+empty_dark
+empty_light
+light_bishop
+light_king
+light_knight
+light_pawn
+light_queen
+light_rook
