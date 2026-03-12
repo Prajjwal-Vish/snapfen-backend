@@ -447,26 +447,26 @@ def manual_slice(img):
     return np.array(squares), img_resized, None
 
 # 2. TFLite Prediction
-def tflite_predict(interpreter, input_data):
-    input_index = INPUT_DETAILS[0]['index']
-    output_index = OUTPUT_DETAILS[0]['index']
-    batch = input_data.astype(np.float32)
-    interpreter.set_tensor(input_index, batch)
-    interpreter.invoke()
-    predictions = interpreter.get_tensor(output_index)
-    return predictions
-
 # def tflite_predict(interpreter, input_data):
 #     input_index = INPUT_DETAILS[0]['index']
 #     output_index = OUTPUT_DETAILS[0]['index']
-#     predictions = []
-#     for i in range(len(input_data)):
-#         img = input_data[i:i+1].astype(np.float32) 
-#         interpreter.set_tensor(input_index, img)
-#         interpreter.invoke()
-#         output = interpreter.get_tensor(output_index)
-#         predictions.append(output[0])
-#     return np.array(predictions)
+#     batch = input_data.astype(np.float32)
+#     interpreter.set_tensor(input_index, batch)
+#     interpreter.invoke()
+#     predictions = interpreter.get_tensor(output_index)
+#     return predictions
+
+def tflite_predict(interpreter, input_data):
+    input_index = INPUT_DETAILS[0]['index']
+    output_index = OUTPUT_DETAILS[0]['index']
+    predictions = []
+    for i in range(len(input_data)):
+        img = input_data[i:i+1].astype(np.float32) 
+        interpreter.set_tensor(input_index, img)
+        interpreter.invoke()
+        output = interpreter.get_tensor(output_index)
+        predictions.append(output[0])
+    return np.array(predictions)
 
 # 3. Voting Logic
 def predict_with_voting(interpreter, squares_batch):
