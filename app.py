@@ -398,6 +398,11 @@ login_manager.init_app(app)
 def load_user(id):
     return db.session.get(User, int(id))
 
+@login_manager.unauthorized_handler
+def unauthorized():
+    # This tells the frontend: "The user is not logged in!"
+    return jsonify({"error": "Unauthorized"}), 401
+
 # --- RESOURCES ---
 INTERPRETER = None
 INPUT_DETAILS = None
@@ -633,17 +638,12 @@ def login():
 
 @app.route('/api/history', methods=['GET'])
 @login_required
-def logout():
-    logout_user()
-    return jsonify({"message": "Logged out"})
-
-@app.route('/api/history')
-@login_required
 def get_history():
     try:
         scans = Scan.query.filter_by(user_id=current_user.id).order_by(Scan.timestamp.desc()).limit(5).all()
         return jsonify([{'fen': s.fen, 'image': s.image_data, 'date': s.timestamp.strftime("%b %d, %H:%M")} for s in scans])
-    except:
+    except Exception as e:
+        print(f"History fetch error: {e}")
         return jsonify([])
 
 load_resources()
