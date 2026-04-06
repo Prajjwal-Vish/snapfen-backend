@@ -4,7 +4,7 @@ flask-sqlalchemy
 flask-jwt-extended
 flask-limiter==3.5.0
 flask-login
-numpy>=2.0.0
+numpy==1.26.4
 opencv-python-headless==4.7.0.72
 gunicorn
 psycopg2-binary
