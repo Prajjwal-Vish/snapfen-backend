@@ -1,5 +1,5 @@
 Python
-venv/
+.venv/
 env/
 pycache/
 *.pyc
@@ -12,5 +12,7 @@ OS
 instance/
 .db
 .env
+.env.production
+sample_images/
 .DS_Store
 Thumbs.db
