@@ -2,6 +2,7 @@ flask
 flask-cors
 flask-sqlalchemy
 flask-jwt-extended
+flask-limiter==3.5.0
 flask-login
 numpy>=2.0.0
 opencv-python-headless==4.7.0.72
