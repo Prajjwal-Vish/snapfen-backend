@@ -32,15 +32,9 @@ except ImportError:
         import tensorflow.lite as tflite
         print("[Worker] Using full TensorFlow Lite (local fallback)")
     except ImportError:
-        raise RuntimeError("[Worker] CRITICAL: No TFLite found. Cannot run inference.")
- 
-# ── Celery app setup ──────────────────────────────────────────────────────────
-# REDIS_URL is the address of the Redis server.
-# In development: redis://localhost:6379/0
-# On Render: set REDIS_URL env var to your Upstash or Redis Cloud URL
-#
-# broker  = where tasks are sent TO (Redis acts as a message queue)
-# backend = where results are stored AFTER the task finishes (also Redis)
+        tflite = None
+        print("[Worker] WARNING: No TFLite found — inference will fail if attempted")
+
 import ssl
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -50,8 +44,6 @@ celery_app = Celery(
     broker=REDIS_URL,
     backend=REDIS_URL,
 )
-
-
 
 # Upstash uses rediss:// (SSL). Celery needs explicit SSL settings.
 if REDIS_URL.startswith("rediss://"):
@@ -82,10 +74,15 @@ CLASS_NAMES = None
 def _load_model():
     """Load TFLite model and class names into global variables."""
     global INTERPRETER, INPUT_DETAILS, OUTPUT_DETAILS, CLASS_NAMES
- 
+    
+    if tflite is None:
+        print("[Worker] Skipping model load — TFLite not available")
+        return
+
     if not MODEL_PATH.exists():
         print(f"[Worker] ERROR: Model not found at {MODEL_PATH}")
         return
+
     if not LABELS_PATH.exists():
         print(f"[Worker] ERROR: Labels not found at {LABELS_PATH}")
         return
@@ -100,9 +97,14 @@ def _load_model():
     except Exception as e:
         print(f"[Worker] CRITICAL: Model load failed: {e}")
  
-from celery.signals import worker_process_init
+_is_celery_worker = any(
+    "celery" in arg.lower() for arg in sys.argv
+)
 
-_load_model()
+if _is_celery_worker:
+    _load_model()
+else:
+    print("[Worker] Skipping model load — not running as Celery worker")
  
  
 # ── Helper functions (copied from app.py — worker is self-contained) ──────────
@@ -311,15 +313,18 @@ def _prune_old_scans(user_id: int, keep: int = 10):
             _delete_image_from_b2(url)
 
         # Then delete the database rows
-        conn.execute(
-            sa.text("DELETE FROM scan WHERE id = ANY(:ids)")
-            if database_url.startswith("postgresql")
-            else sa.text(f"DELETE FROM scan WHERE id IN ({','.join('?' * len(ids_to_delete))})"),
-            ids_to_delete if not database_url.startswith("postgresql") else {"ids": ids_to_delete}
-        )
+        if database_url.startswith("postgresql"):
+            conn.execute(
+                sa.text("DELETE FROM scan WHERE id = ANY(:ids)"),
+                {"ids": ids_to_delete}
+            )
+        else:
+            placeholders = ",".join(f":id{i}" for i in range(len(ids_to_delete)))
+            params = {f"id{i}": id_val for i, id_val in enumerate(ids_to_delete)}
+            conn.execute(sa.text(f"DELETE FROM scan WHERE id IN ({placeholders})"), params)
+        
         conn.commit()
         print(f"[Worker] Pruned {len(rows_to_delete)} old scans for user {user_id}")
-
  
 # ── THE CELERY TASK ───────────────────────────────────────────────────────────
 # This is the function that runs in the background worker process.
