@@ -75,6 +75,9 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "https://your-snapfen-frontend.netlify.app",
     "https://snapfen-frontend.onrender.com",
+    "https://snapfen.vercel.app",
+    "https://snapfen-git-main-prajwal-vishwakarmas-projects.vercel.app",
+    "https://snapfen-mljn3kv7b-prajwal-vishwakarmas-projects.vercel.app",
 ]
 CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 
