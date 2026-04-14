@@ -12,11 +12,11 @@ load_dotenv()
 
 from flask import Flask
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+# from flask_limiter import Limiter
+# from flask_limiter.util import get_remote_address
 from flask_jwt_extended import JWTManager
-
 from models import db
+from extensions import limiter
 
 # ── App factory ───────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -57,6 +57,7 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = (
 # ── Extensions ────────────────────────────────────────────────────────────────
 db.init_app(app)
 jwt = JWTManager(app)
+limiter.init_app(app)
 
 # ── Redis client (shared across blueprints via app.extensions) ────────────────
 # We attach the redis client to app.extensions so blueprints can access it
@@ -79,14 +80,14 @@ ALLOWED_ORIGINS = [
     "https://snapfen-git-main-prajwal-vishwakarmas-projects.vercel.app",
     "https://snapfen-mljn3kv7b-prajwal-vishwakarmas-projects.vercel.app",
 ]
-CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
-
-# ── Rate limiter ──────────────────────────────────────────────────────────────
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
-)
+CORS(app, 
+     resources={r"/*": {
+         "origins": ALLOWED_ORIGINS,
+         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         "allow_headers": ["Content-Type", "Authorization"],
+         "supports_credentials": True,
+         "max_age": 3600
+     }})
 
 # ── Register blueprints ───────────────────────────────────────────────────────
 # Each blueprint is a separate file in the blueprints/ folder.
