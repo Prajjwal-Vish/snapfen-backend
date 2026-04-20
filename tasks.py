@@ -24,87 +24,18 @@ from email_sending import send_report_email
 load_dotenv()
  
 # ── Smart TFLite import (same pattern as your app.py) ────────────────────────
-try:
-    import tflite_runtime.interpreter as tflite
-    print("[Worker] Using TFLite Runtime (lightweight)")
-except ImportError:
-    try:
-        import tensorflow.lite as tflite
-        print("[Worker] Using full TensorFlow Lite (local fallback)")
-    except ImportError:
-        tflite = None
-        print("[Worker] WARNING: No TFLite found — inference will fail if attempted")
+# try:
+#     import tflite_runtime.interpreter as tflite
+#     print("[Worker] Using TFLite Runtime (lightweight)")
+# except ImportError:
+#     try:
+#         import tensorflow.lite as tflite
+#         print("[Worker] Using full TensorFlow Lite (local fallback)")
+#     except ImportError:
+#         tflite = None
+#         print("[Worker] WARNING: No TFLite found — inference will fail if attempted")
 
-import ssl
-
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-
-celery_app = Celery(
-    "snapfen",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
-)
-
-# Upstash uses rediss:// (SSL). Celery needs explicit SSL settings.
-if REDIS_URL.startswith("rediss://"):
-    ssl_config = {"ssl_cert_reqs": ssl.CERT_NONE}
-    celery_app.conf.update(
-        broker_use_ssl=ssl_config,
-        redis_backend_use_ssl=ssl_config,
-    )
-
-celery_app.conf.result_expires = 3600
  
-# ── Model paths (same as app.py) ─────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "Fine_tuned_CNN_Model" / "chess_model_v5.tflite"
-LABELS_PATH = BASE_DIR / "labels" / "class_names.txt"
- 
-# ── Load model once when the worker STARTS (not on every task call) ───────────
-# This is important: loading a TFLite model takes ~1s.
-# If we loaded it inside the task function, every scan would waste that 1s.
-# By loading it at module level, the worker loads it once and reuses it forever.
-# Think of it like a chef sharpening their knife once at start of shift,
-# not before every single cut.
-INTERPRETER = None
-INPUT_DETAILS = None
-OUTPUT_DETAILS = None
-CLASS_NAMES = None
- 
-def _load_model():
-    """Load TFLite model and class names into global variables."""
-    global INTERPRETER, INPUT_DETAILS, OUTPUT_DETAILS, CLASS_NAMES
-    
-    if tflite is None:
-        print("[Worker] Skipping model load — TFLite not available")
-        return
-
-    if not MODEL_PATH.exists():
-        print(f"[Worker] ERROR: Model not found at {MODEL_PATH}")
-        return
-
-    if not LABELS_PATH.exists():
-        print(f"[Worker] ERROR: Labels not found at {LABELS_PATH}")
-        return
- 
-    try:
-        INTERPRETER = tflite.Interpreter(model_path=str(MODEL_PATH))
-        INTERPRETER.allocate_tensors()
-        INPUT_DETAILS = INTERPRETER.get_input_details()
-        OUTPUT_DETAILS = INTERPRETER.get_output_details()
-        CLASS_NAMES = LABELS_PATH.read_text().splitlines()
-        print(f"[Worker] Model loaded. {len(CLASS_NAMES)} classes.")
-    except Exception as e:
-        print(f"[Worker] CRITICAL: Model load failed: {e}")
- 
-_is_celery_worker = any(
-    "celery" in arg.lower() for arg in sys.argv
-)
-
-if _is_celery_worker:
-    _load_model()
-else:
-    print("[Worker] Skipping model load — not running as Celery worker")
  
  
 # ── Helper functions (copied from app.py — worker is self-contained) ──────────
