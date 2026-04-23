@@ -1,6 +1,3 @@
-
-import redis
-import json
 import sys
 from pathlib import Path
 
@@ -15,29 +12,96 @@ import boto3
 from botocore.client import Config
 import uuid
 from pathlib import Path
-from celery import Celery
 from dotenv import load_dotenv
-from chessboard_snipper import process_image
-from flip_board_to_black_pov import assemble_fen_from_predictions, black_perspective_fen
 from email_sending import send_report_email
 
 load_dotenv()
  
-# ── Smart TFLite import (same pattern as your app.py) ────────────────────────
-# try:
-#     import tflite_runtime.interpreter as tflite
-#     print("[Worker] Using TFLite Runtime (lightweight)")
-# except ImportError:
-#     try:
-#         import tensorflow.lite as tflite
-#         print("[Worker] Using full TensorFlow Lite (local fallback)")
-#     except ImportError:
-#         tflite = None
-#         print("[Worker] WARNING: No TFLite found — inference will fail if attempted")
 
- 
- 
- 
+# Creating celery functions here instead of in app.py avoids circular imports.
+import os
+import ssl
+from celery import Celery
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
+celery_app = Celery("snapfen", broker=REDIS_URL, backend=REDIS_URL)
+
+if REDIS_URL.startswith("rediss://"):
+    ssl_config = {"ssl_cert_reqs": ssl.CERT_NONE}
+    celery_app.conf.update(
+        broker_use_ssl=ssl_config,
+        redis_backend_use_ssl=ssl_config,
+    )
+
+celery_app.conf.result_expires = 3600
+
+# ── Base directory and model initialization ─────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "Fine_tuned_CNN_Model" / "chess_model_v5.tflite"
+CLASS_NAMES_PATH = BASE_DIR / "labels" / "class_names.txt"
+
+# Load TFLite model and create interpreter
+INTERPRETER = None
+INPUT_DETAILS = None
+OUTPUT_DETAILS = None
+CLASS_NAMES = []
+
+try:
+    import tensorflow as tf
+    
+    # Load the TFLite model
+    with open(MODEL_PATH, 'rb') as f:
+        model_data = f.read()
+    
+    # Create interpreter from the model data
+    INTERPRETER = tf.lite.Interpreter(model_content=model_data)
+    INTERPRETER.allocate_tensors()
+    
+    # Get input and output details
+    INPUT_DETAILS = INTERPRETER.get_input_details()
+    OUTPUT_DETAILS = INTERPRETER.get_output_details()
+    
+    print(f"[Worker] TFLite model loaded from {MODEL_PATH}")
+    print(f"[Worker] Input shape: {INPUT_DETAILS[0]['shape']}")
+    print(f"[Worker] Output shape: {OUTPUT_DETAILS[0]['shape']}")
+    
+except ImportError:
+    print("[Worker] TensorFlow not installed, trying tflite-runtime...")
+    try:
+        import tflite_runtime.interpreter as tflite
+        
+        INTERPRETER = tflite.Interpreter(model_path=str(MODEL_PATH))
+        INTERPRETER.allocate_tensors()
+        
+        INPUT_DETAILS = INTERPRETER.get_input_details()
+        OUTPUT_DETAILS = INTERPRETER.get_output_details()
+        
+        print(f"[Worker] TFLite model loaded from {MODEL_PATH}")
+        print(f"[Worker] Input shape: {INPUT_DETAILS[0]['shape']}")
+        print(f"[Worker] Output shape: {OUTPUT_DETAILS[0]['shape']}")
+        
+    except Exception as e:
+        print(f"[Worker] Model loading failed: {e}")
+        INTERPRETER = None
+        INPUT_DETAILS = None
+        OUTPUT_DETAILS = None
+
+except Exception as e:
+    print(f"[Worker] Model loading failed: {e}")
+    INTERPRETER = None
+    INPUT_DETAILS = None
+    OUTPUT_DETAILS = None
+
+# Load class names
+try:
+    with open(CLASS_NAMES_PATH, 'r') as f:
+        CLASS_NAMES = [line.strip() for line in f.readlines()]
+    print(f"[Worker] Loaded {len(CLASS_NAMES)} class names from {CLASS_NAMES_PATH}")
+except Exception as e:
+    print(f"[Worker] Failed to load class names: {e}")
+    CLASS_NAMES = []
+
 # ── Helper functions (copied from app.py — worker is self-contained) ──────────
  
 def _tflite_predict(input_data: np.ndarray) -> np.ndarray:
@@ -177,10 +241,6 @@ def _upload_image_to_b2(image_jpeg_bytes: bytes) -> str | None:
 
 
 def _delete_image_from_b2(image_url: str):
-    """
-    Delete an image from B2 given its URL.
-    Called when pruning old scans to free up storage.
-    """
     try:
         client = _get_b2_client()
         bucket = os.environ.get("B2_BUCKET_NAME")
@@ -203,9 +263,6 @@ def _prune_old_scans(user_id: int, keep: int = 10):
     """
     Keep only the most recent `keep` scans for a user.
     Delete the rest from both the database AND B2 storage.
-    
-    Called after every new scan save. Like a sliding window —
-    as new scans come in, old ones fall off the back.
     """
     import sqlalchemy as sa
 
@@ -257,17 +314,13 @@ def _prune_old_scans(user_id: int, keep: int = 10):
         conn.commit()
         print(f"[Worker] Pruned {len(rows_to_delete)} old scans for user {user_id}")
  
-# ── THE CELERY TASK ───────────────────────────────────────────────────────────
-# This is the function that runs in the background worker process.
-# Flask calls `run_inference.delay(...)` which puts a job on the Redis queue.
-# The worker picks it up and calls this function.
-#
-# @celery_app.task — registers this as a Celery task
-# bind=True        — gives us `self` so we can update task state mid-run
-# max_retries=2    — if the task crashes, retry it up to 2 times automatically
 @celery_app.task(bind=True, max_retries=2)
 def run_inference(self, img_b64: str, pov: str, is_manual: bool, user_id):
     # Decode Base64 string back to bytes at the start of the task
+
+    from chessboard_snipper import process_image
+    from flip_board_to_black_pov import assemble_fen_from_predictions, black_perspective_fen
+
     img_bytes = base64.b64decode(img_b64)
 
     if INTERPRETER is None:

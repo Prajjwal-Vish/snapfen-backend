@@ -1,0 +1,8 @@
+-r requirements.txt
+numpy==1.26.4
+opencv-python-headless==4.7.0.72
+boto3==1.34.69
+sib-api-v3-sdk
+tflite-runtime==2.14.0
+celery==5.3.6
+redis==5.0.1

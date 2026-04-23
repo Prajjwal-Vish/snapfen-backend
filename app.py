@@ -1,5 +1,3 @@
-# app code with flask blueprints for better organization
-
 import os
 import ssl
 import json
