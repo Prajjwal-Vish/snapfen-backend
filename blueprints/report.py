@@ -6,7 +6,14 @@
 
 import base64
 from flask import Blueprint, request, jsonify
-from tasks import send_email_task
+import os, ssl
+from celery import Celery
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+_celery = Celery("snapfen", broker=REDIS_URL, backend=REDIS_URL)
+if REDIS_URL.startswith("rediss://"):
+    _ssl_cfg = {"ssl_cert_reqs": ssl.CERT_NONE}
+    _celery.conf.update(broker_use_ssl=_ssl_cfg, redis_backend_use_ssl=_ssl_cfg)
 
 report_bp = Blueprint("report", __name__)
 
@@ -32,13 +39,9 @@ def report_issue():
     attach_b64 = base64.b64encode(bug_file.read()).decode() if bug_file else None
 
     # Enqueue email task — returns instantly, no blocking
-    send_email_task.delay(
-        text=text,
-        tags=tags,
-        fen=fen,
-        orig_b64=orig_b64,
-        crop_b64=crop_b64,
-        attach_b64=attach_b64,
-    )
+    _celery.send_task("tasks.send_email_task", kwargs={
+    "text": text, "tags": tags, "fen": fen,
+    "orig_b64": orig_b64, "crop_b64": crop_b64, "attach_b64": attach_b64,
+    })
 
     return jsonify({"status": "success"})

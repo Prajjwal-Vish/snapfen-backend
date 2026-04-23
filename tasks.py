@@ -314,7 +314,7 @@ def _prune_old_scans(user_id: int, keep: int = 10):
         conn.commit()
         print(f"[Worker] Pruned {len(rows_to_delete)} old scans for user {user_id}")
  
-@celery_app.task(bind=True, max_retries=2)
+@celery_app.task(bind=True, max_retries=2, name="tasks.run_inference")
 def run_inference(self, img_b64: str, pov: str, is_manual: bool, user_id):
     # Decode Base64 string back to bytes at the start of the task
 
@@ -405,7 +405,7 @@ def run_inference(self, img_b64: str, pov: str, is_manual: bool, user_id):
         # This handles transient failures like a momentary Redis blip
         raise self.retry(exc=exc, countdown=5)
  
-@celery_app.task(bind=True, max_retries=3)
+@celery_app.task(bind=True, max_retries=3, name="tasks.send_email_task")
 def send_email_task(self, text: str, tags: str, fen: str,
                     orig_b64: str | None, crop_b64: str | None,
                     attach_b64: str | None):
