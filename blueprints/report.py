@@ -1,9 +1,3 @@
-# blueprints/report.py
-# ─────────────────────────────────────────────────────────────────────────────
-# Handles feedback and bug reports:
-#   POST /report_issue
-# ─────────────────────────────────────────────────────────────────────────────
-
 import base64
 from flask import Blueprint, request, jsonify
 import os, ssl
